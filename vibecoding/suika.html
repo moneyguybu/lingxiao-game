@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>🪵 合成凌肖</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: Arial, sans-serif;
+    user-select: none;
+    background: url('wallpaper.JPG') center center / cover no-repeat fixed;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(10, 0, 20, 0.45);
+    z-index: 0;
+  }
+  #wrapper {
+    display: flex; gap: 20px; align-items: flex-start;
+    padding: 20px; position: relative; z-index: 1;
+  }
+  #game-area { position: relative; }
+  canvas { display: block; cursor: crosshair; border-radius: 0 0 12px 12px; }
+  .panel { display: flex; flex-direction: column; gap: 15px; width: 150px; padding-top: 10px; }
+  .box {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(232,160,191,0.3);
+    border-radius: 12px;
+    padding: 14px;
+    text-align: center;
+    color: white;
+  }
+  .box-label { font-size: 11px; color: #e8a0bf; letter-spacing: 1px; margin-bottom: 8px; }
+  #score-val { font-size: 44px; font-weight: bold; }
+  #next-img-wrap {
+    width: 75px; height: 75px; border-radius: 50%;
+    overflow: hidden; margin: 0 auto;
+    border: 2px solid rgba(232,160,191,0.5);
+  }
+  #next-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .lvlist { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+  .lvitem { display: flex; align-items: center; gap: 8px; font-size: 11px; color: rgba(255,255,255,0.75); }
+  .lvthumb { width: 22px; height: 22px; border-radius: 50%; overflow: hidden; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.25); }
+  .lvthumb img { width: 100%; height: 100%; object-fit: cover; }
+  #overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.82);
+    display: none; flex-direction: column;
+    justify-content: center; align-items: center;
+    border-radius: 12px; color: white;
+  }
+  #overlay h2 { font-size: 26px; color: #e8a0bf; margin-bottom: 8px; }
+  #overlay .sub { font-size: 13px; color: rgba(255,255,255,0.6); margin-bottom: 6px; }
+  #overlay .fscore { font-size: 56px; font-weight: bold; margin-bottom: 25px; }
+  #rbtn {
+    background: linear-gradient(135deg, #e8a0bf, #c050a0);
+    color: white; border: none; padding: 12px 36px;
+    border-radius: 25px; font-size: 16px; cursor: pointer;
+  }
+  #rbtn:hover { filter: brightness(1.1); }
+  #music-btn {
+    position: fixed;
+    bottom: 20px; right: 20px;
+    z-index: 999;
+    background: rgba(232,160,191,0.25);
+    border: 1px solid rgba(232,160,191,0.5);
+    color: white;
+    border-radius: 50%;
+    width: 44px; height: 44px;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s;
+  }
+  #music-btn:hover { background: rgba(232,160,191,0.45); }
+  #quote-popup {
+    position: absolute;
+    pointer-events: none;
+    font-size: 22px;
+    font-weight: bold;
+    color: #fff;
+    text-shadow:
+      0 0 8px #e8a0bf,
+      0 0 18px #e8a0bf,
+      2px 2px 0 #a03070;
+    white-space: nowrap;
+    opacity: 0;
+    transform: translateY(0px);
+    transition: none;
+    z-index: 10;
+    border-radius: 8px;
+    padding: 4px 10px;
+  }
+</style>
+</head>
+<body>
+
+<audio id="bgm" src="pump.MP3" loop preload="auto"></audio>
+<button id="music-btn" title="音乐开关">🎵</button>
+
+<div id="wrapper">
+  <div class="panel" style="width:150px">
+    <div class="box">
+      <div class="box-label">等级图鉴</div>
+      <div class="lvlist" id="lvlist"></div>
+    </div>
+  </div>
+
+  <div id="game-area">
+    <canvas id="c" width="400" height="620"></canvas>
+    <div id="quote-popup"></div>
+    <div id="overlay">
+      <h2>💔 凌肖太多了！</h2>
+      <div class="sub">最终得分</div>
+      <div class="fscore" id="fscore">0</div>
+      <button id="rbtn" onclick="restart()">再来一次 🎮</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="box">
+      <div class="box-label">SCORE</div>
+      <div id="score-val">0</div>
+    </div>
+    <div class="box">
+      <div class="box-label">NEXT</div>
+      <div id="next-img-wrap"><img id="nimg" src="" alt="next"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script>
+const LV = [
+  { r:22,  score:1,  img:'lx1.jpg', name:'小凌肖' },
+  { r:30,  score:3,  img:'lx2.jpg', name:'蛋糕凌肖' },
+  { r:38,  score:6,  img:'lx3.jpg', name:'毛绒凌肖' },
+  { r:48,  score:10, img:'lx4.jpg', name:'海边凌肖' },
+  { r:58,  score:15, img:'lx5.jpg', name:'西瓜凌肖' },
+  { r:70,  score:21, img:'lx6.jpg', name:'学院凌肖' },
+  { r:82,  score:28, img:'lx7.jpg', name:'黑客凌肖' },
+  { r:96,  score:36, img:'lx8.jpg', name:'雪地凌肖✨' },
+];
+
+const QUOTES = ['快跑', '城管来了', '你也太菜了吧', '呦', '无聊'];
+
+const W = 400, H = 620;
+const DROP_Y = 68;
+const DANGER_Y = 85;
+
+const IMGS = LV.map(l => { const i = new Image(); i.src = l.img; return i; });
+
+const lvlist = document.getElementById('lvlist');
+LV.forEach((l) => {
+  lvlist.innerHTML += `<div class="lvitem">
+    <div class="lvthumb"><img src="${l.img}"></div>
+    <span>${l.name}</span>
+  </div>`;
+});
+
+// 音乐控制
+const bgm = document.getElementById('bgm');
+const musicBtn = document.getElementById('music-btn');
+let musicOn = false;
+
+musicBtn.addEventListener('click', () => {
+  if (musicOn) {
+    bgm.pause();
+    musicBtn.textContent = '🔇';
+    musicOn = false;
+  } else {
+    bgm.play().catch(() => {});
+    musicBtn.textContent = '🎵';
+    musicOn = true;
+  }
+});
+
+let autoPlayDone = false;
+document.getElementById('c').addEventListener('click', () => {
+  if (!autoPlayDone) {
+    bgm.play().then(() => {
+      musicOn = true;
+      musicBtn.textContent = '🎵';
+    }).catch(() => {});
+    autoPlayDone = true;
+  }
+}, { once: true });
+
+// 台词弹出
+const quotePopup = document.getElementById('quote-popup');
+let quoteTimer = null;
+
+function showQuote(x, y) {
+  const text = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  quotePopup.textContent = text;
+  quotePopup.style.transition = 'none';
+  quotePopup.style.opacity = '1';
+  quotePopup.style.transform = 'translateY(0px)';
+  const pw = quotePopup.offsetWidth || 120;
+  const ph = quotePopup.offsetHeight || 36;
+  quotePopup.style.left = Math.max(0, Math.min(W - pw, x - pw / 2)) + 'px';
+  quotePopup.style.top  = Math.max(0, y - ph - 10) + 'px';
+  if (quoteTimer) clearTimeout(quoteTimer);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      quotePopup.style.transition = 'opacity 0.9s ease, transform 0.9s ease';
+      quotePopup.style.opacity = '0';
+      quotePopup.style.transform = 'translateY(-40px)';
+    });
+  });
+  quoteTimer = setTimeout(() => {
+    quotePopup.style.transition = 'none';
+    quotePopup.style.opacity = '0';
+  }, 1000);
+}
+
+// 物理引擎
+const { Engine, Bodies, Body, World, Events } = Matter;
+let engine, world;
+let circles = [], merging = new Set(), pendingMerges = [];
+let score = 0, curLv, nxtLv, dropX = W/2;
+let canDrop = true, dead = false, goTimer = 0;
+
+function initPhysics() {
+  engine = Engine.create({ gravity: { y: 2 } });
+  world = engine.world;
+  const T = 20;
+  World.add(world, [
+    Bodies.rectangle(W/2, H+T/2, W+T*2, T, { isStatic:true }),
+    Bodies.rectangle(-T/2, H/2, T, H*3, { isStatic:true }),
+    Bodies.rectangle(W+T/2, H/2, T, H*3, { isStatic:true }),
+  ]);
+  Events.on(engine, 'collisionStart', e => {
+    if (dead) return;
+    e.pairs.forEach(p => {
+      const a = circles.find(c => c.body === p.bodyA);
+      const b = circles.find(c => c.body === p.bodyB);
+      if (!a || !b) return;
+      if (a.lv !== b.lv || a.lv >= LV.length-1) return;
+      if (merging.has(a) || merging.has(b)) return;
+      merging.add(a); merging.add(b);
+      pendingMerges.push([a, b]);
+    });
+  });
+}
+
+function processMerges() {
+  if (!pendingMerges.length) return;
+  pendingMerges.forEach(([a, b]) => {
+    if (!circles.includes(a) || !circles.includes(b)) return;
+    const nl = a.lv + 1;
+    const mx = (a.body.position.x + b.body.position.x) / 2;
+    const my = (a.body.position.y + b.body.position.y) / 2;
+    removeC(a); removeC(b);
+    const nc = addC(mx, my, nl);
+    Body.setVelocity(nc.body, { x: 0, y: -3 });
+    score += LV[nl].score;
+    document.getElementById('score-val').textContent = score;
+    showQuote(mx, my);
+  });
+  pendingMerges = []; merging.clear();
+}
+
+function addC(x, y, lv) {
+  const body = Bodies.circle(x, y, LV[lv].r, {
+    restitution: 0.25, friction: 0.5, frictionAir: 0.01, density: 0.002,
+  });
+  World.add(world, body);
+  const c = { body, lv };
+  circles.push(c);
+  return c;
+}
+
+function removeC(c) {
+  World.remove(world, c.body);
+  const i = circles.indexOf(c);
+  if (i !== -1) circles.splice(i, 1);
+  merging.delete(c);
+}
+
+function drop() {
+  if (!canDrop || dead) return;
+  canDrop = false;
+  addC(dropX, DROP_Y, curLv);
+  curLv = nxtLv;
+  nxtLv = randLv();
+  document.getElementById('nimg').src = LV[nxtLv].img;
+  setTimeout(() => { if (!dead) canDrop = true; }, 700);
+}
+
+function randLv() { return Math.floor(Math.random() * 4); }
+
+function checkDead() {
+  for (const c of circles) {
+    const spd = Math.sqrt(c.body.velocity.x**2 + c.body.velocity.y**2);
+    if (c.body.position.y - LV[c.lv].r < DANGER_Y && spd < 0.8) {
+      dead = true; canDrop = false;
+      document.getElementById('fscore').textContent = score;
+      document.getElementById('overlay').style.display = 'flex';
+      return;
+    }
+  }
+}
+
+function restart() {
+  circles.forEach(c => World.remove(world, c.body));
+  circles = []; merging.clear(); pendingMerges = [];
+  score = 0; dead = false; canDrop = true; dropX = W/2; goTimer = 0;
+  document.getElementById('score-val').textContent = '0';
+  document.getElementById('overlay').style.display = 'none';
+  curLv = randLv(); nxtLv = randLv();
+  document.getElementById('nimg').src = LV[nxtLv].img;
+}
+
+// 渲染
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// 背景图片
+const bgImg = new Image();
+bgImg.src = 'wallpaper.JPG';
+
+function drawBall(x, y, lv, angle, alpha) {
+  const r = LV[lv].r;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI*2);
+  ctx.clip();
+  const img = IMGS[lv];
+  if (img.complete && img.naturalWidth > 0) {
+    ctx.drawImage(img, -r, -r, r*2, r*2);
+  } else {
+    ctx.fillStyle = `hsl(${lv*40},65%,60%)`;
+    ctx.fillRect(-r, -r, r*2, r*2);
+  }
+  ctx.beginPath();
+  ctx.arc(0, 0, r-1, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function render() {
+  // 背景
+  if (bgImg.complete && bgImg.naturalWidth > 0) {
+    ctx.drawImage(bgImg, 0, 0, W, H);
+    ctx.fillStyle = 'rgba(10,0,20,0.45)';
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#2a1530');
+    g.addColorStop(1, '#180a26');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // 危险区
+  ctx.fillStyle = 'rgba(200,80,80,0.06)';
+  ctx.fillRect(0, 0, W, DANGER_Y);
+  ctx.strokeStyle = 'rgba(220,80,80,0.5)';
+  ctx.setLineDash([6, 4]);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(0, DANGER_Y); ctx.lineTo(W, DANGER_Y); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(220,80,80,0.55)';
+  ctx.font = '10px Arial';
+  ctx.fillText('▲ GAME OVER LINE', 8, DANGER_Y - 4);
+
+  // 所有球
+  circles.forEach(c => drawBall(c.body.position.x, c.body.position.y, c.lv, c.body.angle, 1));
+
+  // 预览球
+  if (canDrop && !dead) {
+    const r = LV[curLv].r;
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(dropX, DROP_Y+r); ctx.lineTo(dropX, H); ctx.stroke();
+    ctx.setLineDash([]);
+    drawBall(dropX, DROP_Y, curLv, 0, 0.72);
+  }
+}
+
+// 主循环
+let lastTs = 0;
+function loop(ts) {
+  const dt = Math.min(ts - lastTs, 50);
+  lastTs = ts;
+  if (!dead) {
+    Engine.update(engine, 1000/60);
+    processMerges();
+    goTimer += dt;
+    if (goTimer > 1200) { checkDead(); goTimer = 0; }
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+// 输入
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (W / rect.width);
+  const r = LV[curLv].r;
+  dropX = Math.max(r+1, Math.min(W-r-1, x));
+});
+canvas.addEventListener('click', () => drop());
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.touches[0].clientX - rect.left) * (W / rect.width);
+  const r = LV[curLv].r;
+  dropX = Math.max(r+1, Math.min(W-r-1, x));
+}, { passive: false });
+canvas.addEventListener('touchend', e => { e.preventDefault(); drop(); });
+
+// 启动
+initPhysics();
+curLv = randLv(); nxtLv = randLv();
+document.getElementById('nimg').src = LV[nxtLv].img;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
