@@ -123,7 +123,7 @@
   }
   #mob-next-wrap img { width: 100%; height: 100%; object-fit: cover; }
 
-  /* 手机图鉴按钮 - 列表样式 */
+  /* 手机图鉴按钮 */
   #lv-btn {
     display: none;
     position: fixed;
@@ -212,11 +212,7 @@
     #panel-left, #panel-right { display: none; }
     #mob-topbar { display: flex; }
     #lv-btn { display: flex; }
-    canvas {
-      width: 100% !important;
-      height: auto !important;
-      border-radius: 12px;
-    }
+    /* 注意：手机端不强制拉伸 canvas，让 JS 自己控制尺寸 */
   }
 
   /* ===== 游戏覆盖层 ===== */
@@ -359,225 +355,152 @@ const IMGS = LV.map(l => { const i = new Image(); i.src = l.img; return i; });
 // 生成桌面图鉴
 const lvlistEl = document.getElementById('lvlist');
 LV.forEach(l => {
-  lvlistEl.innerHTML += `<div class="lvitem">
-    <div class="lvthumb"><img src="${l.img}"></div>
-    <span>${l.name}</span>
-  </div>`;
+  const div = document.createElement('div');
+  div.className = 'lvitem';
+  div.innerHTML = `<div class="lvthumb"><img src="${l.img}"></div><span>${l.name}</span>`;
+  lvlistEl.appendChild(div);
 });
 
-// 生成手机弹窗图鉴
+// 生成手机图鉴弹窗
 const lvlistModal = document.getElementById('lvlist-modal');
 LV.forEach(l => {
-  lvlistModal.innerHTML += `<div class="lvitem">
-    <div class="lvthumb"><img src="${l.img}"></div>
-    <span>${l.name}</span>
-  </div>`;
+  const div = document.createElement('div');
+  div.className = 'lvitem';
+  div.innerHTML = `<div class="lvthumb"><img src="${l.img}"></div><span>${l.name}</span>`;
+  lvlistModal.appendChild(div);
 });
 
 function openLvModal() { document.getElementById('lv-modal').classList.add('open'); }
 function closeLvModal() { document.getElementById('lv-modal').classList.remove('open'); }
 
-// ===== Matter.js 初始化 =====
-const { Engine, Render, Runner, Bodies, Body, World, Events, Mouse, MouseConstraint } = Matter;
-const engine = Engine.create({ gravity: { y: 2 } });
+// Matter.js 初始化
+const { Engine, Render, Runner, Bodies, Body, World, Events, Query } = Matter;
+const engine = Engine.create();
 const world = engine.world;
 
 const canvas = document.getElementById('c');
-const render = Render.create({
-  canvas,
-  engine,
-  options: { width: W, height: H, wireframes: false, background: 'transparent' }
-});
-Render.run(render);
-const runner = Runner.create();
-Runner.run(runner, engine);
+const ctx = canvas.getContext('2d');
 
-// 墙壁
-const wallOpts = { isStatic: true, render: { fillStyle: 'rgba(255,255,255,0.08)' }, friction: 0.3, restitution: 0.2 };
-World.add(world, [
-  Bodies.rectangle(W/2, H + 25, W, 50, wallOpts),
-  Bodies.rectangle(-25, H/2, 50, H, wallOpts),
-  Bodies.rectangle(W + 25, H/2, 50, H, wallOpts),
-]);
+// 边界墙
+const wallOpts = { isStatic: true, restitution: 0.3, friction: 0.5 };
+const ground = Bodies.rectangle(W/2, H+25, W, 50, wallOpts);
+const wallL  = Bodies.rectangle(-25, H/2, 50, H, wallOpts);
+const wallR  = Bodies.rectangle(W+25, H/2, 50, H, wallOpts);
+World.add(world, [ground, wallL, wallR]);
 
-// 危险线渲染
-const origAfterRender = render.context;
-Events.on(render, 'afterRender', () => {
-  const ctx = render.context;
-  ctx.save();
-  ctx.strokeStyle = 'rgba(232,100,100,0.55)';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([8, 6]);
-  ctx.beginPath();
-  ctx.moveTo(0, DANGER_Y);
-  ctx.lineTo(W, DANGER_Y);
-  ctx.stroke();
-  ctx.restore();
-});
-
-// ===== 游戏状态 =====
 let score = 0;
-let nextLv = 0;
-let dropping = false;
+let nextLv = randLv();
+let dropX = W / 2;
+let canDrop = true;
 let gameOver = false;
-let currentX = W / 2;
-let previewBody = null;
-let started = false;
-let musicOn = false;
+let dangerTimer = 0;
+let bgmStarted = false;
 
-const bgm = document.getElementById('bgm');
-const musicBtn = document.getElementById('music-btn');
+function randLv() { return Math.floor(Math.random() * 4); }
 
-function handleStart() {
-  const ss = document.getElementById('start-screen');
-  ss.classList.add('hidden');
-  setTimeout(() => { ss.style.display = 'none'; }, 500);
-  started = true;
-  bgm.play().then(() => {
-    musicOn = true;
-    musicBtn.textContent = '🎵';
-  }).catch(() => {
-    musicOn = false;
-    musicBtn.textContent = '🔇';
-  });
-  nextLv = randLv();
-  updateNextUI();
-  started = true;
-}
-
-musicBtn.addEventListener('click', () => {
-  if (musicOn) {
-    bgm.pause();
-    musicOn = false;
-    musicBtn.textContent = '🔇';
-  } else {
-    bgm.play();
-    musicOn = true;
-    musicBtn.textContent = '🎵';
-  }
-});
-
-function randLv() { return Math.floor(Math.random() * Math.min(4, LV.length)); }
-
-function updateScore(add) {
-  score += add;
+function updateScoreUI() {
   document.getElementById('score-val').textContent = score;
   document.getElementById('mob-score-val').textContent = score;
 }
-
 function updateNextUI() {
   document.getElementById('nimg').src = LV[nextLv].img;
   document.getElementById('mob-nimg').src = LV[nextLv].img;
 }
+updateNextUI();
 
-function makeBallBody(x, y, lv, isStatic) {
+// 每个球的额外数据
+const ballData = new Map();
+
+function dropBall(x) {
+  if (!canDrop || gameOver) return;
+  const lv = nextLv;
   const r = LV[lv].r;
-  const body = Bodies.circle(x, y, r, {
+  const ball = Bodies.circle(x, DROP_Y, r, {
     restitution: 0.3,
     friction: 0.5,
     frictionAir: 0.01,
-    density: 0.002,
-    isStatic: isStatic || false,
-    render: {
-      sprite: {
-        texture: LV[lv].img,
-        xScale: (r * 2) / 100,
-        yScale: (r * 2) / 100,
-      }
-    }
+    label: 'ball'
   });
-  body.gameLevel = lv;
-  return body;
-}
-
-function dropBall(x) {
-  if (dropping || gameOver || !started) return;
-  dropping = true;
-  if (previewBody) { World.remove(world, previewBody); previewBody = null; }
-
-  const lv = nextLv;
-  const body = makeBallBody(x, DROP_Y, lv, false);
-  World.add(world, body);
+  ball.gameData = { lv, merging: false };
+  World.add(world, ball);
+  ballData.set(ball.id, { lv, merging: false });
 
   nextLv = randLv();
   updateNextUI();
+  canDrop = false;
+  setTimeout(() => { if (!gameOver) canDrop = true; }, 500);
 
-  setTimeout(() => { dropping = false; }, 400);
+  // 随机弹出语录
+  if (Math.random() < 0.3) showQuote(x, DROP_Y);
 }
 
-// ===== 合成检测 =====
-const merging = new Set();
+function showQuote(x, y) {
+  const el = document.getElementById('quote-popup');
+  el.textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  el.style.left = (x - 40) + 'px';
+  el.style.top = (y - 10) + 'px';
+  el.style.opacity = '1';
+  el.style.transform = 'translateY(0)';
+  el.style.transition = 'none';
+  setTimeout(() => {
+    el.style.transition = 'opacity 0.8s, transform 0.8s';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(-40px)';
+  }, 50);
+}
+
+// 合并检测
 Events.on(engine, 'collisionStart', e => {
   e.pairs.forEach(pair => {
-    const { bodyA, bodyB } = pair;
-    if (bodyA.gameLevel === undefined || bodyB.gameLevel === undefined) return;
-    if (bodyA.gameLevel !== bodyB.gameLevel) return;
-    if (merging.has(bodyA.id) || merging.has(bodyB.id)) return;
-    const lv = bodyA.gameLevel;
+    const a = pair.bodyA, b = pair.bodyB;
+    if (!a.gameData || !b.gameData) return;
+    if (a.gameData.lv !== b.gameData.lv) return;
+    if (a.gameData.merging || b.gameData.merging) return;
+    const lv = a.gameData.lv;
     if (lv >= LV.length - 1) return;
-    merging.add(bodyA.id);
-    merging.add(bodyB.id);
 
-    const mx = (bodyA.position.x + bodyB.position.x) / 2;
-    const my = (bodyA.position.y + bodyB.position.y) / 2;
+    a.gameData.merging = true;
+    b.gameData.merging = true;
 
-    Matter.World.remove(world, bodyA);
-    Matter.World.remove(world, bodyB);
+    const mx = (a.position.x + b.position.x) / 2;
+    const my = (a.position.y + b.position.y) / 2;
 
     setTimeout(() => {
-      const nb = makeBallBody(mx, my, lv + 1, false);
-      World.add(world, nb);
-      merging.delete(bodyA.id);
-      merging.delete(bodyB.id);
-      updateScore(LV[lv + 1].score);
-      showQuote(mx, my);
-    }, 30);
+      World.remove(world, a);
+      World.remove(world, b);
+      ballData.delete(a.id);
+      ballData.delete(b.id);
+
+      const newLv = lv + 1;
+      const r = LV[newLv].r;
+      const ball = Bodies.circle(mx, my, r, {
+        restitution: 0.3,
+        friction: 0.5,
+        frictionAir: 0.01,
+        label: 'ball'
+      });
+      ball.gameData = { lv: newLv, merging: false };
+      World.add(world, ball);
+      ballData.set(ball.id, { lv: newLv, merging: false });
+
+      score += LV[newLv].score;
+      updateScoreUI();
+    }, 50);
   });
 });
 
-// ===== 弹幕语 =====
-const quoteEl = document.getElementById('quote-popup');
-let quoteTimer = null;
-function showQuote(x, y) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = rect.width / W;
-  const scaleY = rect.height / H;
-  quoteEl.textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
-  quoteEl.style.left = (x * scaleX - 40) + 'px';
-  quoteEl.style.top = (y * scaleY - 30) + 'px';
-  quoteEl.style.opacity = '1';
-  quoteEl.style.transform = 'translateY(0)';
-  quoteEl.style.transition = 'none';
-  if (quoteTimer) clearTimeout(quoteTimer);
-  quoteTimer = setTimeout(() => {
-    quoteEl.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
-    quoteEl.style.opacity = '0';
-    quoteEl.style.transform = 'translateY(-28px)';
-  }, 700);
-}
-
-// ===== 死亡判定 =====
-let deathTimer = null;
-Events.on(engine, 'afterUpdate', () => {
-  if (gameOver || !started) return;
-  const bodies = Matter.Composite.allBodies(world);
-  const danger = bodies.some(b =>
-    b.gameLevel !== undefined &&
-    !b.isStatic &&
-    Math.abs(b.velocity.y) < 0.5 &&
-    Math.abs(b.velocity.x) < 0.5 &&
-    (b.position.y - b.circleRadius) < DANGER_Y
-  );
+// 游戏结束检测
+function checkDanger() {
+  if (gameOver) return;
+  const bodies = engine.world.bodies.filter(b => b.label === 'ball' && !b.gameData?.merging);
+  const danger = bodies.some(b => b.position.y - b.circleRadius < DANGER_Y);
   if (danger) {
-    if (!deathTimer) {
-      deathTimer = setTimeout(() => {
-        if (!gameOver) triggerGameOver();
-      }, 1500);
-    }
+    dangerTimer++;
+    if (dangerTimer > 120) triggerGameOver();
   } else {
-    if (deathTimer) { clearTimeout(deathTimer); deathTimer = null; }
+    dangerTimer = 0;
   }
-});
+}
 
 function triggerGameOver() {
   gameOver = true;
@@ -587,78 +510,131 @@ function triggerGameOver() {
 }
 
 function restart() {
+  const bodies = engine.world.bodies.filter(b => b.label === 'ball');
+  bodies.forEach(b => World.remove(world, b));
+  ballData.clear();
   score = 0;
-  document.getElementById('score-val').textContent = '0';
-  document.getElementById('mob-score-val').textContent = '0';
-  gameOver = false;
-  dropping = false;
-  if (deathTimer) { clearTimeout(deathTimer); deathTimer = null; }
-  document.getElementById('overlay').style.display = 'none';
-
-  const bodies = Matter.Composite.allBodies(world);
-  bodies.forEach(b => { if (b.gameLevel !== undefined) World.remove(world, b); });
-
+  updateScoreUI();
   nextLv = randLv();
   updateNextUI();
+  canDrop = true;
+  gameOver = false;
+  dangerTimer = 0;
+  dropX = W / 2;
+  document.getElementById('overlay').style.display = 'none';
 }
 
-// ===== 输入控制 =====
-function getCanvasX(clientX) {
+// 渲染循环
+function gameLoop() {
+  Engine.update(engine, 1000 / 60);
+  checkDanger();
+
+  // ★ 这里是游戏区域背景色，rgba 第4个参数是透明度，0.75 表示较不透明
+  ctx.fillStyle = 'rgba(15, 5, 30, 0.75)';
+  ctx.fillRect(0, 0, W, H);
+
+  // 画顶部提示线
+  ctx.strokeStyle = 'rgba(232,160,191,0.3)';
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, DROP_Y);
+  ctx.lineTo(W, DROP_Y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 画准星
+  if (!gameOver && canDrop) {
+    ctx.strokeStyle = 'rgba(232,160,191,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(dropX, 10);
+    ctx.lineTo(dropX, DROP_Y - LV[nextLv].r);
+    ctx.stroke();
+
+    // 预览球
+    const r = LV[nextLv].r;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(dropX, DROP_Y - r, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(IMGS[nextLv], dropX - r, DROP_Y - r * 2, r * 2, r * 2);
+    ctx.restore();
+  }
+
+  // 画所有球
+  engine.world.bodies.forEach(b => {
+    if (b.label !== 'ball') return;
+    const lv = b.gameData?.lv ?? 0;
+    const r = b.circleRadius;
+    const x = b.position.x, y = b.position.y;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(IMGS[lv], x - r, y - r, r * 2, r * 2);
+    ctx.restore();
+
+    // 描边
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+
+  requestAnimationFrame(gameLoop);
+}
+
+// 输入控制
+canvas.addEventListener('mousemove', e => {
+  if (gameOver) return;
   const rect = canvas.getBoundingClientRect();
   const scaleX = W / rect.width;
-  return (clientX - rect.left) * scaleX;
-}
-
-canvas.addEventListener('mousemove', e => {
-  if (!started || gameOver) return;
-  currentX = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, getCanvasX(e.clientX)));
+  dropX = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, (e.clientX - rect.left) * scaleX));
 });
-
 canvas.addEventListener('click', e => {
-  if (!started || gameOver) return;
-  const x = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, getCanvasX(e.clientX)));
-  dropBall(x);
+  if (gameOver) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  dropX = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, (e.clientX - rect.left) * scaleX));
+  dropBall(dropX);
 });
-
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
-  if (!started || gameOver) return;
-  const t = e.touches[0];
-  currentX = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, getCanvasX(t.clientX)));
+  if (gameOver) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  dropX = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, (e.touches[0].clientX - rect.left) * scaleX));
 }, { passive: false });
-
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
-  if (!started || gameOver) return;
-  const t = e.changedTouches[0];
-  const x = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, getCanvasX(t.clientX)));
-  dropBall(x);
+  if (gameOver) return;
+  dropBall(dropX);
 }, { passive: false });
 
-// ===== 预览线渲染 =====
-Events.on(render, 'afterRender', () => {
-  if (!started || gameOver) return;
-  const ctx = render.context;
-  const r = LV[nextLv].r;
-  const x = currentX;
-  ctx.save();
-  ctx.strokeStyle = 'rgba(232,160,191,0.4)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([5, 5]);
-  ctx.beginPath();
-  ctx.moveTo(x, DROP_Y + r);
-  ctx.lineTo(x, H);
-  ctx.stroke();
-  const img = IMGS[nextLv];
-  if (img.complete) {
-    ctx.globalAlpha = 0.5;
-    ctx.beginPath();
-    ctx.arc(x, DROP_Y, r, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.drawImage(img, x - r, DROP_Y - r, r * 2, r * 2);
-  }
-  ctx.restore();
+// 启动页
+function handleStart() {
+  const ss = document.getElementById('start-screen');
+  ss.classList.add('hidden');
+  const bgm = document.getElementById('bgm');
+  bgm.play().catch(() => {});
+  bgmStarted = true;
+  setTimeout(() => ss.style.display = 'none', 500);
+}
+
+// 音乐按钮
+const musicBtn = document.getElementById('music-btn');
+let musicOn = true;
+musicBtn.addEventListener('click', () => {
+  const bgm = document.getElementById('bgm');
+  if (musicOn) { bgm.pause(); musicBtn.textContent = '🔇'; }
+  else { bgm.play(); musicBtn.textContent = '🎵'; }
+  musicOn = !musicOn;
 });
+
+gameLoop();
 </script>
 </body>
 </html>
