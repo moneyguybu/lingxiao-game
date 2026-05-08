@@ -12,7 +12,7 @@
     align-items: center;
     font-family: Arial, sans-serif;
     user-select: none;
-    background: url('wallpaper.JPG') center center / cover no-repeat fixed;
+    background: url('wallpaper.jpg') center center / cover no-repeat fixed;
   }
   body::before {
     content: '';
@@ -102,7 +102,7 @@
 </head>
 <body>
 
-<audio id="bgm" src="pump.MP3" loop preload="auto"></audio>
+<audio id="bgm" src="pump.mp3" loop preload="auto"></audio>
 <button id="music-btn" title="音乐开关">🎵</button>
 
 <div id="wrapper">
@@ -325,7 +325,7 @@ const ctx = canvas.getContext('2d');
 
 // 背景图片
 const bgImg = new Image();
-bgImg.src = 'wallpaper.JPG';
+bgImg.src = 'wallpaper.jpg';
 
 function drawBall(x, y, lv, angle, alpha) {
   const r = LV[lv].r;
