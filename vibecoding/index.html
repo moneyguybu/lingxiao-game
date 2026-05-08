@@ -25,6 +25,50 @@
     z-index: 0;
   }
 
+  /* ===== 点击进入启动页 ===== */
+  #start-screen {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: rgba(10, 0, 20, 0.75);
+    cursor: pointer;
+    transition: opacity 0.5s ease;
+  }
+  #start-screen h1 {
+    font-size: 32px;
+    color: #e8a0bf;
+    text-shadow: 0 0 20px #e8a0bf;
+    margin-bottom: 16px;
+    letter-spacing: 4px;
+  }
+  #start-screen .start-hint {
+    font-size: 15px;
+    color: rgba(255,255,255,0.7);
+    animation: blink 1.4s infinite;
+  }
+  #start-screen .start-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes blink {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  @keyframes pulse {
+    0%,100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+  }
+  #start-screen.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
   /* ===== 桌面布局 ===== */
   #wrapper {
     display: flex;
@@ -35,7 +79,7 @@
     z-index: 1;
   }
   #game-area { position: relative; }
-  canvas { display: block; cursor: crosshair; border-radius: 0 0 12px 12px; }
+  canvas { display: block; cursor: crosshair; border-radius: 0 0 12px 12px; touch-action: none; }
   .panel { display: flex; flex-direction: column; gap: 15px; width: 150px; padding-top: 10px; }
   .box {
     background: rgba(255,255,255,0.07);
@@ -58,59 +102,111 @@
   .lvthumb { width: 22px; height: 22px; border-radius: 50%; overflow: hidden; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.25); }
   .lvthumb img { width: 100%; height: 100%; object-fit: cover; }
 
-  /* ===== 手机专属布局 ===== */
+  /* ===== 手机专属 ===== */
+  #mob-topbar {
+    display: none;
+    width: 100%;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    gap: 8px;
+  }
+  #mob-topbar .box {
+    flex: 1;
+    padding: 8px 10px;
+  }
+  #mob-score-val { font-size: 28px; font-weight: bold; }
+  #mob-next-wrap {
+    width: 48px; height: 48px; border-radius: 50%;
+    overflow: hidden; margin: 0 auto;
+    border: 2px solid rgba(232,160,191,0.5);
+  }
+  #mob-next-wrap img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* 手机图鉴按钮 */
+  #lv-btn {
+    display: none;
+    position: fixed;
+    top: 14px; left: 14px;
+    z-index: 500;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: rgba(232,160,191,0.25);
+    border: 1px solid rgba(232,160,191,0.5);
+    cursor: pointer;
+    overflow: hidden;
+    padding: 0;
+  }
+  #lv-btn img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+
+  /* 手机图鉴弹窗 */
+  #lv-modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 800;
+    background: rgba(0,0,0,0.6);
+    justify-content: center;
+    align-items: center;
+  }
+  #lv-modal.open { display: flex; }
+  #lv-modal-inner {
+    background: rgba(20,5,35,0.96);
+    border: 1px solid rgba(232,160,191,0.4);
+    border-radius: 16px;
+    padding: 20px 24px;
+    width: 85%;
+    max-width: 320px;
+    color: white;
+  }
+  #lv-modal-inner h3 {
+    font-size: 14px;
+    color: #e8a0bf;
+    letter-spacing: 2px;
+    margin-bottom: 14px;
+    text-align: center;
+  }
+  #lv-modal-inner .lvlist { gap: 10px; }
+  #lv-modal-inner .lvitem { font-size: 13px; }
+  #lv-modal-inner .lvthumb { width: 32px; height: 32px; }
+  #lv-close {
+    display: block;
+    margin: 18px auto 0;
+    background: linear-gradient(135deg, #e8a0bf, #c050a0);
+    color: white; border: none;
+    padding: 10px 32px;
+    border-radius: 20px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
   @media (max-width: 600px) {
-    body {
-      align-items: flex-start;
-      overflow-y: auto;
-    }
+    body { align-items: flex-start; overflow-y: auto; }
     #wrapper {
       flex-direction: column;
       align-items: center;
-      gap: 10px;
-      padding: 10px;
+      gap: 8px;
+      padding: 8px;
       width: 100%;
     }
-    /* 手机顶部信息栏：分数 + NEXT 横排 */
-    #top-bar {
-      display: flex !important;
-      gap: 10px;
-      width: 100%;
-      justify-content: center;
-    }
-    #top-bar .box {
-      flex: 1;
-      max-width: 160px;
-    }
-    /* 手机上隐藏左侧图鉴面板（可选，避免太长） */
-    #panel-left {
-      display: none;
-    }
-    /* 右侧面板在手机上隐藏（已移到top-bar） */
-    #panel-right {
-      display: none;
-    }
+    #panel-left, #panel-right { display: none; }
+    #mob-topbar { display: flex; }
+    #lv-btn { display: block; }
     canvas {
       width: 100% !important;
       height: auto !important;
-      max-width: 420px;
       border-radius: 12px;
-      touch-action: none;
     }
-    #score-val { font-size: 32px; }
-    #next-img-wrap { width: 55px; height: 55px; }
   }
 
-  /* ===== 桌面隐藏手机顶栏 ===== */
-  #top-bar { display: none; }
-
+  /* ===== 游戏覆盖层 ===== */
   #overlay {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(0,0,0,0.82);
     display: none; flex-direction: column;
     justify-content: center; align-items: center;
-    border-radius: 12px; color: white;
-    z-index: 20;
+    border-radius: 12px; color: white; z-index: 20;
   }
   #overlay h2 { font-size: 26px; color: #e8a0bf; margin-bottom: 8px; }
   #overlay .sub { font-size: 13px; color: rgba(255,255,255,0.6); margin-bottom: 6px; }
@@ -127,54 +223,63 @@
     z-index: 999;
     background: rgba(232,160,191,0.25);
     border: 1px solid rgba(232,160,191,0.5);
-    color: white;
-    border-radius: 50%;
-    width: 44px; height: 44px;
-    font-size: 20px;
+    color: white; border-radius: 50%;
+    width: 44px; height: 44px; font-size: 20px;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: background 0.2s;
   }
   #music-btn:hover { background: rgba(232,160,191,0.45); }
   #quote-popup {
-    position: absolute;
-    pointer-events: none;
-    font-size: 22px;
-    font-weight: bold;
-    color: #fff;
+    position: absolute; pointer-events: none;
+    font-size: 22px; font-weight: bold; color: #fff;
     text-shadow: 0 0 8px #e8a0bf, 0 0 18px #e8a0bf, 2px 2px 0 #a03070;
-    white-space: nowrap;
-    opacity: 0;
-    transform: translateY(0px);
-    transition: none;
-    z-index: 10;
-    border-radius: 8px;
-    padding: 4px 10px;
+    white-space: nowrap; opacity: 0;
+    transform: translateY(0px); transition: none;
+    z-index: 10; border-radius: 8px; padding: 4px 10px;
   }
 </style>
 </head>
 <body>
 
+<!-- 点击进入启动页 -->
+<div id="start-screen" onclick="handleStart()">
+  <div class="start-icon">🪵</div>
+  <h1>合成凌肖</h1>
+  <div class="start-hint">点击任意位置开始 ✨</div>
+</div>
+
 <audio id="bgm" src="pump.mp3" loop preload="auto"></audio>
 <button id="music-btn" title="音乐开关">🎵</button>
 
-<div id="wrapper">
+<!-- 手机图鉴按钮 -->
+<button id="lv-btn" onclick="openLvModal()" title="等级图鉴">
+  <img src="lx1.jpg" alt="图鉴">
+</button>
 
-  <!-- 手机专属顶部信息栏 -->
-  <div id="top-bar">
+<!-- 手机图鉴弹窗 -->
+<div id="lv-modal" onclick="closeLvModal()">
+  <div id="lv-modal-inner" onclick="event.stopPropagation()">
+    <h3>✨ 等级图鉴 ✨</h3>
+    <div class="lvlist" id="lvlist-modal"></div>
+    <button id="lv-close" onclick="closeLvModal()">关闭</button>
+  </div>
+</div>
+
+<div id="wrapper">
+  <!-- 手机顶栏 -->
+  <div id="mob-topbar">
     <div class="box">
       <div class="box-label">SCORE</div>
-      <div id="score-val-mobile">0</div>
+      <div id="mob-score-val">0</div>
     </div>
     <div class="box">
       <div class="box-label">NEXT</div>
-      <div id="next-img-wrap-mobile" style="width:55px;height:55px;border-radius:50%;overflow:hidden;margin:0 auto;border:2px solid rgba(232,160,191,0.5)">
-        <img id="nimg-mobile" src="" alt="next" style="width:100%;height:100%;object-fit:cover">
-      </div>
+      <div id="mob-next-wrap"><img id="mob-nimg" src="" alt="next"></div>
     </div>
   </div>
 
-  <!-- 左侧图鉴 -->
+  <!-- 左侧图鉴（桌面） -->
   <div class="panel" id="panel-left">
     <div class="box">
       <div class="box-label">等级图鉴</div>
@@ -194,7 +299,7 @@
     </div>
   </div>
 
-  <!-- 右侧分数+NEXT（桌面） -->
+  <!-- 右侧面板（桌面） -->
   <div class="panel" id="panel-right">
     <div class="box">
       <div class="box-label">SCORE</div>
@@ -205,7 +310,6 @@
       <div id="next-img-wrap"><img id="nimg" src="" alt="next"></div>
     </div>
   </div>
-
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
@@ -217,18 +321,18 @@ const LV = [
   { r:48,  score:10, img:'lx4.jpg', name:'海边凌肖' },
   { r:58,  score:15, img:'lx5.jpg', name:'西瓜凌肖' },
   { r:70,  score:21, img:'lx6.jpg', name:'学院凌肖' },
-  { r:82,  score:28, img:'lx7.jpg', name:'黑客凌肖' },
+  { r:82,  score:28, img:'lx7.jpg', name:'严肃凌肖' },
   { r:96,  score:36, img:'lx8.jpg', name:'雪地凌肖✨' },
 ];
 
 const QUOTES = ['快跑', '城管来了', '你也太菜了吧', '呦', '无聊'];
-
 const W = 400, H = 620;
 const DROP_Y = 68;
 const DANGER_Y = 85;
 
 const IMGS = LV.map(l => { const i = new Image(); i.src = l.img; return i; });
 
+// 生成桌面图鉴
 const lvlist = document.getElementById('lvlist');
 LV.forEach((l) => {
   lvlist.innerHTML += `<div class="lvitem">
@@ -237,24 +341,34 @@ LV.forEach((l) => {
   </div>`;
 });
 
-// 判断是否手机
-function isMobile() { return window.innerWidth <= 600; }
+// 生成手机弹窗图鉴
+const lvlistModal = document.getElementById('lvlist-modal');
+LV.forEach((l) => {
+  lvlistModal.innerHTML += `<div class="lvitem">
+    <div class="lvthumb"><img src="${l.img}"></div>
+    <span>${l.name}</span>
+  </div>`;
+});
 
-// 同步更新分数和NEXT图（桌面+手机都更新）
-function updateScore(val) {
-  document.getElementById('score-val').textContent = val;
-  document.getElementById('score-val-mobile').textContent = val;
-}
-function updateNext(src) {
-  document.getElementById('nimg').src = src;
-  document.getElementById('nimg-mobile').src = src;
-}
+function openLvModal() { document.getElementById('lv-modal').classList.add('open'); }
+function closeLvModal() { document.getElementById('lv-modal').classList.remove('open'); }
 
-// 音乐控制
+// ===== 启动页处理 =====
 const bgm = document.getElementById('bgm');
 const musicBtn = document.getElementById('music-btn');
 let musicOn = false;
 
+function handleStart() {
+  const ss = document.getElementById('start-screen');
+  ss.classList.add('hidden');
+  setTimeout(() => { ss.style.display = 'none'; }, 500);
+  bgm.play().then(() => {
+    musicOn = true;
+    musicBtn.textContent = '🎵';
+  }).catch(() => {});
+}
+
+// 音乐开关按钮
 musicBtn.addEventListener('click', () => {
   if (musicOn) {
     bgm.pause();
@@ -267,16 +381,15 @@ musicBtn.addEventListener('click', () => {
   }
 });
 
-let autoPlayDone = false;
-document.getElementById('c').addEventListener('click', () => {
-  if (!autoPlayDone) {
-    bgm.play().then(() => {
-      musicOn = true;
-      musicBtn.textContent = '🎵';
-    }).catch(() => {});
-    autoPlayDone = true;
-  }
-}, { once: true });
+// 同步更新分数和NEXT（桌面+手机）
+function updateScore(val) {
+  document.getElementById('score-val').textContent = val;
+  document.getElementById('mob-score-val').textContent = val;
+}
+function updateNext(src) {
+  document.getElementById('nimg').src = src;
+  document.getElementById('mob-nimg').src = src;
+}
 
 // 台词弹出
 const quotePopup = document.getElementById('quote-popup');
@@ -408,116 +521,141 @@ function restart() {
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
-const bgImg = new Image();
-bgImg.src = 'wallpaper.jpg';
+// 获取canvas缩放比（手机适配）
+function getScale() {
+  return canvas.getBoundingClientRect().width / W;
+}
 
-function drawBall(x, y, lv, angle, alpha) {
-  const r = LV[lv].r;
+function drawDropLine() {
   ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.translate(x, y);
-  ctx.rotate(angle);
+  ctx.setLineDash([6, 5]);
+  ctx.strokeStyle = 'rgba(232,160,191,0.35)';
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI*2);
+  ctx.moveTo(dropX, DROP_Y);
+  ctx.lineTo(dropX, H);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPreview() {
+  if (!canDrop || dead) return;
+  const r = LV[curLv].r;
+  const img = IMGS[curLv];
+  ctx.save();
+  ctx.globalAlpha = 0.75;
+  ctx.beginPath();
+  ctx.arc(dropX, DROP_Y, r, 0, Math.PI*2);
   ctx.clip();
-  const img = IMGS[lv];
-  if (img.complete && img.naturalWidth > 0) {
-    ctx.drawImage(img, -r, -r, r*2, r*2);
-  } else {
-    ctx.fillStyle = `hsl(${lv*40},65%,60%)`;
-    ctx.fillRect(-r, -r, r*2, r*2);
-  }
+  ctx.drawImage(img, dropX-r, DROP_Y-r, r*2, r*2);
+  ctx.restore();
+  ctx.save();
   ctx.beginPath();
-  ctx.arc(0, 0, r-1, 0, Math.PI*2);
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.arc(dropX, DROP_Y, r, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.restore();
 }
 
-function render() {
-  if (bgImg.complete && bgImg.naturalWidth > 0) {
-    ctx.drawImage(bgImg, 0, 0, W, H);
-    ctx.fillStyle = 'rgba(10,0,20,0.45)';
-    ctx.fillRect(0, 0, W, H);
-  } else {
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#2a1530');
-    g.addColorStop(1, '#180a26');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  ctx.fillStyle = 'rgba(200,80,80,0.06)';
-  ctx.fillRect(0, 0, W, DANGER_Y);
-  ctx.strokeStyle = 'rgba(220,80,80,0.5)';
-  ctx.setLineDash([6, 4]);
+function drawTopBar() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(232,160,191,0.12)';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, W, DROP_Y - 4, [12, 12, 0, 0]);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(232,160,191,0.25)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = 'rgba(232,160,191,0.5)';
   ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(0, DANGER_Y); ctx.lineTo(W, DANGER_Y); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.fillStyle = 'rgba(220,80,80,0.55)';
-  ctx.font = '10px Arial';
-  ctx.fillText('▲ GAME OVER LINE', 8, DANGER_Y - 4);
-
-  circles.forEach(c => drawBall(c.body.position.x, c.body.position.y, c.lv, c.body.angle, 1));
-
-  if (canDrop && !dead) {
-    const r = LV[curLv].r;
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.setLineDash([4, 4]);
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(dropX, DROP_Y+r); ctx.lineTo(dropX, H); ctx.stroke();
-    ctx.setLineDash([]);
-    drawBall(dropX, DROP_Y, curLv, 0, 0.72);
-  }
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, DANGER_Y);
+  ctx.lineTo(W, DANGER_Y);
+  ctx.stroke();
+  ctx.restore();
 }
 
-// 主循环
-let lastTs = 0;
-function loop(ts) {
-  const dt = Math.min(ts - lastTs, 50);
-  lastTs = ts;
-  if (!dead) {
-    Engine.update(engine, 1000/60);
-    processMerges();
-    goTimer += dt;
-    if (goTimer > 1200) { checkDead(); goTimer = 0; }
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  drawTopBar();
+  drawDropLine();
+  for (const c of circles) {
+    const { x, y } = c.body.position;
+    const r = LV[c.lv].r;
+    const img = IMGS[c.lv];
+    const angle = c.body.angle;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI*2);
+    ctx.clip();
+    ctx.drawImage(img, -r, -r, r*2, r*2);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
   }
-  render();
-  requestAnimationFrame(loop);
+  drawPreview();
 }
 
-// ===== 输入处理（手机适配关键：缩放比例换算）=====
-function getScaleRatio() {
+// 事件处理（鼠标+触摸，支持缩放）
+function getCanvasX(clientX) {
   const rect = canvas.getBoundingClientRect();
-  return W / rect.width;
+  const scale = W / rect.width;
+  return (clientX - rect.left) * scale;
 }
 
 canvas.addEventListener('mousemove', e => {
-  const rect = canvas.getBoundingClientRect();
-  const ratio = getScaleRatio();
-  const x = (e.clientX - rect.left) * ratio;
-  const r = LV[curLv].r;
-  dropX = Math.max(r+1, Math.min(W-r-1, x));
+  if (dead) return;
+  dropX = Math.max(LV[curLv].r, Math.min(W - LV[curLv].r, getCanvasX(e.clientX)));
 });
 
-canvas.addEventListener('click', () => drop());
+canvas.addEventListener('click', e => {
+  if (dead) return;
+  dropX = Math.max(LV[curLv].r, Math.min(W - LV[curLv].r, getCanvasX(e.clientX)));
+  drop();
+});
 
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const ratio = getScaleRatio();
-  const x = (e.touches[0].clientX - rect.left) * ratio;
-  const r = LV[curLv].r;
-  dropX = Math.max(r+1, Math.min(W-r-1, x));
+  if (dead) return;
+  const t = e.touches[0];
+  dropX = Math.max(LV[curLv].r, Math.min(W - LV[curLv].r, getCanvasX(t.clientX)));
 }, { passive: false });
 
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
+  if (dead) return;
+  const t = e.changedTouches[0];
+  dropX = Math.max(LV[curLv].r, Math.min(W - LV[curLv].r, getCanvasX(t.clientX)));
   drop();
 }, { passive: false });
 
-// 启动
+// 主循环
+let lastTime = 0;
+function loop(ts) {
+  const dt = Math.min(ts - lastTime, 32);
+  lastTime = ts;
+  Engine.update(engine, dt);
+  processMerges();
+  goTimer += dt;
+  if (goTimer > 2000) checkDead();
+  render();
+  requestAnimationFrame(loop);
+}
+
+// 初始化
 initPhysics();
 curLv = randLv(); nxtLv = randLv();
 updateNext(LV[nxtLv].img);
