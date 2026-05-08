@@ -79,7 +79,16 @@
     z-index: 1;
   }
   #game-area { position: relative; }
-  canvas { display: block; cursor: crosshair; border-radius: 0 0 12px 12px; touch-action: none; }
+
+  /* ★ 关键：canvas 本身背景透明，才能透出壁纸 */
+  canvas {
+    display: block;
+    cursor: crosshair;
+    border-radius: 0 0 12px 12px;
+    touch-action: none;
+    background: transparent;
+  }
+
   .panel { display: flex; flex-direction: column; gap: 15px; width: 150px; padding-top: 10px; }
   .box {
     background: rgba(255,255,255,0.07);
@@ -212,7 +221,6 @@
     #panel-left, #panel-right { display: none; }
     #mob-topbar { display: flex; }
     #lv-btn { display: flex; }
-    /* 注意：手机端不强制拉伸 canvas，让 JS 自己控制尺寸 */
   }
 
   /* ===== 游戏覆盖层 ===== */
@@ -408,7 +416,6 @@ function updateNextUI() {
 }
 updateNextUI();
 
-// 每个球的额外数据
 const ballData = new Map();
 
 function dropBall(x) {
@@ -430,7 +437,6 @@ function dropBall(x) {
   canDrop = false;
   setTimeout(() => { if (!gameOver) canDrop = true; }, 500);
 
-  // 随机弹出语录
   if (Math.random() < 0.3) showQuote(x, DROP_Y);
 }
 
@@ -529,8 +535,9 @@ function gameLoop() {
   Engine.update(engine, 1000 / 60);
   checkDanger();
 
-  // ★ 这里是游戏区域背景色，rgba 第4个参数是透明度，0.75 表示较不透明
-  ctx.fillStyle = 'rgba(15, 5, 30, 0.75)';
+  // ★ 先清空画布（让壁纸透出来），再用 40% 不透明度的深色覆盖
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(15, 5, 30, 0.4)';
   ctx.fillRect(0, 0, W, H);
 
   // 画顶部提示线
