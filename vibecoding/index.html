@@ -123,21 +123,40 @@
   }
   #mob-next-wrap img { width: 100%; height: 100%; object-fit: cover; }
 
-  /* 手机图鉴按钮 */
+  /* 手机图鉴按钮 - 列表样式 */
   #lv-btn {
     display: none;
     position: fixed;
     top: 14px; left: 14px;
     z-index: 500;
-    width: 44px; height: 44px;
-    border-radius: 50%;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: 20px;
     background: rgba(232,160,191,0.25);
-    border: 1px solid rgba(232,160,191,0.5);
+    border: 1px solid rgba(232,160,191,0.6);
     cursor: pointer;
-    overflow: hidden;
-    padding: 0;
+    align-items: center;
+    gap: 8px;
+    color: white;
+    font-size: 13px;
   }
-  #lv-btn img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  #lv-btn .list-icon {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #lv-btn .list-icon span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: #e8a0bf;
+    border-radius: 2px;
+  }
+  #lv-btn .list-label {
+    color: #e8a0bf;
+    font-size: 13px;
+    letter-spacing: 1px;
+  }
 
   /* 手机图鉴弹窗 */
   #lv-modal {
@@ -192,7 +211,7 @@
     }
     #panel-left, #panel-right { display: none; }
     #mob-topbar { display: flex; }
-    #lv-btn { display: block; }
+    #lv-btn { display: flex; }
     canvas {
       width: 100% !important;
       height: auto !important;
@@ -254,7 +273,12 @@
 
 <!-- 手机图鉴按钮 -->
 <button id="lv-btn" onclick="openLvModal()" title="等级图鉴">
-  <img src="lx1.jpg" alt="图鉴">
+  <span class="list-icon">
+    <span></span>
+    <span></span>
+    <span></span>
+  </span>
+  <span class="list-label">图鉴</span>
 </button>
 
 <!-- 手机图鉴弹窗 -->
@@ -328,7 +352,6 @@ const LV = [
 const QUOTES = ['快跑', '城管来了', '你也太菜了吧', '呦', '无聊'];
 const W = 400, H = 620;
 const DROP_Y = 60;
-// ★ 死亡线放宽：只要球心还在这条线以下就不算死
 const DANGER_Y = 55;
 
 const IMGS = LV.map(l => { const i = new Image(); i.src = l.img; return i; });
@@ -355,341 +378,287 @@ function openLvModal() { document.getElementById('lv-modal').classList.add('open
 function closeLvModal() { document.getElementById('lv-modal').classList.remove('open'); }
 
 // ===== Matter.js 初始化 =====
-const { Engine, Render, Runner, Bodies, Body, World, Events, Vector } = Matter;
-const engine = Engine.create({ gravity: { y: 1.5 } });
-const world = engine.world;
+const { Engine, Render, Runner, Bodies, Body, World, Events, Mouse, MouseConstraint } = Matter;
 
+let engine, world, balls, score, nextLv, dropping, gameOver, canDrop, merging;
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
-// 墙壁
-const wallOpts = { isStatic: true, restitution: 0.3, friction: 0.5 };
-const ground = Bodies.rectangle(W/2, H + 25, W, 50, wallOpts);
-const wallL  = Bodies.rectangle(-25, H/2, 50, H, wallOpts);
-const wallR  = Bodies.rectangle(W+25, H/2, 50, H, wallOpts);
-World.add(world, [ground, wallL, wallR]);
+function initGame() {
+  if (engine) Engine.clear(engine);
 
-let circles = [];       // 所有已落地的球
-let droppingBall = null; // 当前正在下落的球（不参与死亡判定）
-let nextLv = randLv();
-let score = 0;
-let dead = false;
-let gameStarted = false;
-let mouseX = W / 2;
-// 落地后的"冷却时间"：球落地后多少ms才开始参与死亡判定
-const SETTLE_DELAY = 1200; // ms
+  engine = Engine.create({ gravity: { y: 1.5 } });
+  world = engine.world;
+  balls = [];
+  score = 0;
+  gameOver = false;
+  canDrop = true;
+  dropping = null;
+  merging = new Set();
 
-// 音乐
-const bgm = document.getElementById('bgm');
-let musicOn = true;
-document.getElementById('music-btn').onclick = () => {
-  musicOn = !musicOn;
-  if (musicOn) { bgm.play(); document.getElementById('music-btn').textContent = '🎵'; }
-  else { bgm.pause(); document.getElementById('music-btn').textContent = '🔇'; }
-};
+  updateScore(0);
 
-function handleStart() {
-  const ss = document.getElementById('start-screen');
-  ss.classList.add('hidden');
-  setTimeout(() => ss.style.display = 'none', 500);
-  bgm.play().catch(() => {});
-  gameStarted = true;
-  spawnPreview();
+  // 墙壁
+  const wallOpts = { isStatic: true, friction: 0.3, restitution: 0.3 };
+  World.add(world, [
+    Bodies.rectangle(W/2, H+25, W, 50, wallOpts),   // 底部
+    Bodies.rectangle(-25, H/2, 50, H, wallOpts),     // 左
+    Bodies.rectangle(W+25, H/2, 50, H, wallOpts),    // 右
+  ]);
+
+  nextLv = randLv();
+  updateNextUI();
+
+  // 合成事件
+  Events.on(engine, 'collisionStart', handleCollision);
 }
 
 function randLv() {
-  // 只随机低等级球
-  const max = Math.min(4, LV.length - 1);
-  return Math.floor(Math.random() * max);
+  return Math.floor(Math.random() * Math.min(5, LV.length));
 }
 
-function updateUI() {
+function updateScore(add) {
+  score += add;
   document.getElementById('score-val').textContent = score;
   document.getElementById('mob-score-val').textContent = score;
-  const ni = document.getElementById('nimg');
-  const mni = document.getElementById('mob-nimg');
-  ni.src = LV[nextLv].img;
-  mni.src = LV[nextLv].img;
 }
 
-// ===== 预览球（只是视觉，不进物理引擎）=====
-let previewLv = 0;
-function spawnPreview() {
-  previewLv = nextLv;
-  nextLv = randLv();
-  updateUI();
+function updateNextUI() {
+  document.getElementById('nimg').src = LV[nextLv].img;
+  document.getElementById('mob-nimg').src = LV[nextLv].img;
 }
 
-// ===== 投放球 =====
-function dropBall(x) {
-  if (dead || !gameStarted) return;
-  if (droppingBall) return; // 上一个球还没落定，不允许再投
-
-  const lv = previewLv;
-  const r  = LV[lv].r;
-  x = Math.max(r + 5, Math.min(W - r - 5, x));
-
-  const body = Bodies.circle(x, DROP_Y, r, {
+function createBall(x, y, lv, isDropping) {
+  const r = LV[lv].r;
+  const body = Bodies.circle(x, y, r, {
     restitution: 0.3,
-    friction: 0.6,
-    frictionAir: 0.008,
+    friction: 0.5,
+    frictionAir: 0.01,
     density: 0.002,
-    label: 'ball'
+    label: 'ball',
   });
   body._lv = lv;
-  body._merged = false;
-  // ★ 记录"投放时间"，用于死亡判定冷却
-  body._dropTime = Date.now();
-
+  body._dropping = isDropping || false;
+  body._id = Math.random().toString(36).slice(2);
   World.add(world, body);
-
-  const ballObj = { body, lv, merging: false };
-  circles.push(ballObj);
-  droppingBall = ballObj;
-
-  // 监听这个球"稳定落地"后解除 droppingBall 锁定
-  // 策略：每隔100ms检查速度，速度够小就解锁，最多等3秒
-  const lockStart = Date.now();
-  const checkSettle = setInterval(() => {
-    if (!droppingBall || droppingBall !== ballObj) {
-      clearInterval(checkSettle);
-      return;
-    }
-    const v = ballObj.body.velocity;
-    const speed = Math.sqrt(v.x * v.x + v.y * v.y);
-    const elapsed = Date.now() - lockStart;
-    // 速度小于1，或者超过3秒强制解锁
-    if (speed < 1.0 || elapsed > 3000) {
-      droppingBall = null;
-      clearInterval(checkSettle);
-    }
-  }, 100);
-
-  spawnPreview();
+  balls.push(body);
+  return body;
 }
 
-// ===== 合并逻辑 =====
-Events.on(engine, 'collisionStart', e => {
-  e.pairs.forEach(pair => {
+function dropBall(x) {
+  if (!canDrop || gameOver) return;
+  canDrop = false;
+  const lv = nextLv;
+  const ball = createBall(x, DROP_Y, lv, true);
+  dropping = ball;
+  nextLv = randLv();
+  updateNextUI();
+
+  // 落地后解除 dropping 标记
+  setTimeout(() => {
+    if (ball) ball._dropping = false;
+    dropping = null;
+    canDrop = true;
+  }, 800);
+}
+
+function handleCollision(event) {
+  const pairs = event.pairs;
+  pairs.forEach(pair => {
     const { bodyA, bodyB } = pair;
     if (bodyA.label !== 'ball' || bodyB.label !== 'ball') return;
+    if (bodyA._lv !== bodyB._lv) return;
+    if (merging.has(bodyA._id) || merging.has(bodyB._id)) return;
+    if (bodyA._lv >= LV.length - 1) return;
 
-    const lvA = bodyA._lv, lvB = bodyB._lv;
-    if (lvA !== lvB) return;
-    if (bodyA._merged || bodyB._merged) return;
-    if (lvA >= LV.length - 1) return;
-
-    bodyA._merged = true;
-    bodyB._merged = true;
+    merging.add(bodyA._id);
+    merging.add(bodyB._id);
 
     const nx = (bodyA.position.x + bodyB.position.x) / 2;
     const ny = (bodyA.position.y + bodyB.position.y) / 2;
-    const newLv = lvA + 1;
+    const newLv = bodyA._lv + 1;
 
-    World.remove(world, bodyA);
-    World.remove(world, bodyB);
-    circles = circles.filter(c => c.body !== bodyA && c.body !== bodyB);
-
-    // 如果被合并的球是 droppingBall，解锁
-    if (droppingBall && (droppingBall.body === bodyA || droppingBall.body === bodyB)) {
-      droppingBall = null;
-    }
-
-    score += LV[newLv].score;
-    updateUI();
-
-    const nr = LV[newLv].r;
-    const newBody = Bodies.circle(nx, ny, nr, {
-      restitution: 0.35,
-      friction: 0.5,
-      frictionAir: 0.008,
-      density: 0.002,
-      label: 'ball'
-    });
-    newBody._lv = newLv;
-    newBody._merged = false;
-    newBody._dropTime = Date.now(); // 合并出来的球也有冷却
-    World.add(world, newBody);
-    circles.push({ body: newBody, lv: newLv, merging: false });
-
-    showQuote(nx, ny);
+    setTimeout(() => {
+      removeBall(bodyA);
+      removeBall(bodyB);
+      const nb = createBall(nx, ny, newLv, false);
+      updateScore(LV[newLv].score);
+      showQuote(nx, ny);
+      merging.delete(bodyA._id);
+      merging.delete(bodyB._id);
+    }, 50);
   });
-});
+}
 
-// ===== 语录弹出 =====
+function removeBall(body) {
+  World.remove(world, body);
+  balls = balls.filter(b => b !== body);
+}
+
 function showQuote(x, y) {
   const el = document.getElementById('quote-popup');
   el.textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
-  el.style.left = (x - 50) + 'px';
-  el.style.top  = (y - 30) + 'px';
+  el.style.left = (x - 40) + 'px';
+  el.style.top = (y - 30) + 'px';
   el.style.opacity = '1';
+  el.style.transform = 'translateY(0)';
   el.style.transition = 'none';
-  el.style.transform = 'translateY(0px)';
   setTimeout(() => {
-    el.style.transition = 'opacity 0.8s ease, transform 0.8s ease';
+    el.style.transition = 'opacity 0.6s, transform 0.6s';
     el.style.opacity = '0';
-    el.style.transform = 'translateY(-40px)';
+    el.style.transform = 'translateY(-30px)';
   }, 50);
 }
 
-// ===== 死亡判定（修复版）=====
-function checkDead() {
-  if (dead) return;
-  const now = Date.now();
-  for (const c of circles) {
-    // ★ 跳过正在下落的球（droppingBall）
-    if (c === droppingBall) continue;
-    // ★ 跳过刚落地还在冷却期的球（SETTLE_DELAY ms内不判定）
-    if (now - c.body._dropTime < SETTLE_DELAY) continue;
+// ===== 渲染循环 =====
+let cursorX = W / 2;
+let aimLine = true;
 
-    const v = c.body.velocity;
-    const speed = Math.sqrt(v.x * v.x + v.y * v.y);
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  cursorX = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, (e.clientX - rect.left) * scaleX));
+});
 
-    // ★ 只有静止（speed < 0.5）且球的顶部超过死亡线才算死
-    if (speed < 0.5 && c.body.position.y - LV[c.lv].r < DANGER_Y) {
-      dead = true;
-      droppingBall = null;
-      document.getElementById('fscore').textContent = score;
-      document.getElementById('overlay').style.display = 'flex';
-      bgm.pause();
-      return;
-    }
-  }
-}
+canvas.addEventListener('click', e => {
+  if (gameOver) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  const x = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, (e.clientX - rect.left) * scaleX));
+  dropBall(x);
+});
 
-// ===== 游戏循环 =====
-function gameLoop() {
-  Engine.update(engine, 1000 / 60);
-  drawFrame();
-  if (gameStarted && !dead) checkDead();
-  requestAnimationFrame(gameLoop);
-}
+// 触摸
+let touchX = W / 2;
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  touchX = Math.max(LV[nextLv].r, Math.min(W - LV[nextLv].r, (e.touches[0].clientX - rect.left) * scaleX));
+  cursorX = touchX;
+}, { passive: false });
 
-// ===== 绘制 =====
-function drawFrame() {
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (gameOver) return;
+  dropBall(touchX);
+});
+
+function drawGame() {
   ctx.clearRect(0, 0, W, H);
 
   // 背景
-  ctx.fillStyle = 'rgba(15, 5, 30, 0.55)';
+  ctx.fillStyle = 'rgba(15, 5, 30, 0.92)';
   ctx.fillRect(0, 0, W, H);
 
-  // 顶部区域（投放区）
-  ctx.fillStyle = 'rgba(232,160,191,0.06)';
-  ctx.fillRect(0, 0, W, DROP_Y + 5);
-
-  // 死亡线
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255, 80, 100, 0.55)';
+  // 危险线
+  ctx.strokeStyle = 'rgba(232, 100, 150, 0.6)';
   ctx.lineWidth = 1.5;
-  ctx.setLineDash([6, 5]);
+  ctx.setLineDash([6, 4]);
   ctx.beginPath();
-  ctx.moveTo(0, DANGER_Y);
-  ctx.lineTo(W, DANGER_Y);
+  ctx.moveTo(0, DANGER_Y + 10);
+  ctx.lineTo(W, DANGER_Y + 10);
   ctx.stroke();
-  ctx.restore();
+  ctx.setLineDash([]);
 
-  // 画预览球
-  if (gameStarted && !dead) {
-    const lv = previewLv;
-    const r  = LV[lv].r;
-    const px = Math.max(r + 5, Math.min(W - r - 5, mouseX));
+  // 准星线
+  if (canDrop && !gameOver) {
+    ctx.strokeStyle = 'rgba(232,160,191,0.35)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(cursorX, DROP_Y);
+    ctx.lineTo(cursorX, H);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 预览球
+    const pr = LV[nextLv].r;
     ctx.save();
     ctx.globalAlpha = 0.55;
     ctx.beginPath();
-    ctx.arc(px, DROP_Y, r, 0, Math.PI * 2);
+    ctx.arc(cursorX, DROP_Y, pr, 0, Math.PI * 2);
     ctx.clip();
-    ctx.drawImage(IMGS[lv], px - r, DROP_Y - r, r * 2, r * 2);
-    ctx.restore();
-    // 引导线
-    ctx.save();
-    ctx.strokeStyle = 'rgba(232,160,191,0.25)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 6]);
-    ctx.beginPath();
-    ctx.moveTo(px, DROP_Y + r);
-    ctx.lineTo(px, H);
-    ctx.stroke();
+    ctx.drawImage(IMGS[nextLv], cursorX - pr, DROP_Y - pr, pr * 2, pr * 2);
     ctx.restore();
   }
 
-  // 画所有球
-  for (const c of circles) {
-    const { body, lv } = c;
-    const { x, y } = body.position;
-    const r = LV[lv].r;
-    const angle = body.angle;
-
+  // 画球
+  balls.forEach(b => {
+    const r = b.circleRadius;
+    const { x, y } = b.position;
+    const angle = b.angle;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.clip();
-    ctx.drawImage(IMGS[lv], -r, -r, r * 2, r * 2);
+    ctx.drawImage(IMGS[b._lv], -r, -r, r * 2, r * 2);
     ctx.restore();
+  });
+}
 
-    // 边框
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.restore();
+// ★★★ 死亡判定：只判断非 dropping 的静止球 ★★★
+function checkGameOver() {
+  if (gameOver) return;
+  for (const b of balls) {
+    if (b._dropping) continue; // 正在下落的球不算
+    if (b.position.y - b.circleRadius < DANGER_Y) {
+      triggerGameOver();
+      return;
+    }
   }
 }
 
-// ===== 重新开始 =====
-function restart() {
-  circles.forEach(c => World.remove(world, c.body));
-  circles = [];
-  droppingBall = null;
-  score = 0;
-  dead = false;
-  document.getElementById('overlay').style.display = 'none';
-  document.getElementById('score-val').textContent = '0';
-  document.getElementById('mob-score-val').textContent = '0';
-  spawnPreview();
-  if (musicOn) bgm.play().catch(() => {});
+function triggerGameOver() {
+  gameOver = true;
+  document.getElementById('fscore').textContent = score;
+  const ov = document.getElementById('overlay');
+  ov.style.display = 'flex';
 }
 
-// ===== 输入事件 =====
-canvas.addEventListener('mousemove', e => {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = W / rect.width;
-  mouseX = (e.clientX - rect.left) * scaleX;
+function restart() {
+  document.getElementById('overlay').style.display = 'none';
+  initGame();
+}
+
+// ===== 音乐控制 =====
+const bgm = document.getElementById('bgm');
+let musicOn = false;
+document.getElementById('music-btn').addEventListener('click', () => {
+  if (musicOn) {
+    bgm.pause();
+    musicOn = false;
+    document.getElementById('music-btn').textContent = '🔇';
+  } else {
+    bgm.play().catch(() => {});
+    musicOn = true;
+    document.getElementById('music-btn').textContent = '🎵';
+  }
 });
 
-canvas.addEventListener('click', e => {
-  if (!gameStarted || dead) return;
-  if (droppingBall) return; // 锁定期不允许投
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = W / rect.width;
-  dropBall((e.clientX - rect.left) * scaleX);
-});
+// ===== 启动页 =====
+function handleStart() {
+  const ss = document.getElementById('start-screen');
+  ss.classList.add('hidden');
+  bgm.play().then(() => { musicOn = true; }).catch(() => {});
+  setTimeout(() => { ss.style.display = 'none'; }, 500);
+}
 
-// 触摸
-canvas.addEventListener('touchmove', e => {
-  e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = W / rect.width;
-  mouseX = (e.touches[0].clientX - rect.left) * scaleX;
-}, { passive: false });
+// ===== 主循环 =====
+let lastTime = 0;
+function loop(ts) {
+  const delta = ts - lastTime;
+  lastTime = ts;
+  Engine.update(engine, delta || 16);
+  drawGame();
+  checkGameOver();
+  requestAnimationFrame(loop);
+}
 
-canvas.addEventListener('touchend', e => {
-  e.preventDefault();
-  if (!gameStarted || dead) return;
-  if (droppingBall) return;
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = W / rect.width;
-  const tx = (e.changedTouches[0].clientX - rect.left) * scaleX;
-  dropBall(tx);
-}, { passive: false });
-
-// ===== 启动 =====
-updateUI();
-gameLoop();
+initGame();
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
