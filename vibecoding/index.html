@@ -25,7 +25,7 @@
     z-index: 0;
   }
 
-  /* ===== 点击进入启动页 ===== */
+  /* ===== 启动页 ===== */
   #start-screen {
     position: fixed;
     top: 0; left: 0;
@@ -102,7 +102,7 @@
   .lvthumb { width: 22px; height: 22px; border-radius: 50%; overflow: hidden; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.25); }
   .lvthumb img { width: 100%; height: 100%; object-fit: cover; }
 
-  /* ===== 手机专属 ===== */
+  /* ===== 手机顶栏 ===== */
   #mob-topbar {
     display: none;
     width: 100%;
@@ -242,7 +242,7 @@
 </head>
 <body>
 
-<!-- 点击进入启动页 -->
+<!-- 启动页 -->
 <div id="start-screen" onclick="handleStart()">
   <div class="start-icon">🪵</div>
   <h1>合成凌肖</h1>
@@ -327,15 +327,16 @@ const LV = [
 
 const QUOTES = ['快跑', '城管来了', '你也太菜了吧', '呦', '无聊'];
 const W = 400, H = 620;
-const DROP_Y = 68;
-const DANGER_Y = 85;
+const DROP_Y = 60;
+// ★ 死亡线放宽：只要球心还在这条线以下就不算死
+const DANGER_Y = 55;
 
 const IMGS = LV.map(l => { const i = new Image(); i.src = l.img; return i; });
 
 // 生成桌面图鉴
-const lvlist = document.getElementById('lvlist');
-LV.forEach((l) => {
-  lvlist.innerHTML += `<div class="lvitem">
+const lvlistEl = document.getElementById('lvlist');
+LV.forEach(l => {
+  lvlistEl.innerHTML += `<div class="lvitem">
     <div class="lvthumb"><img src="${l.img}"></div>
     <span>${l.name}</span>
   </div>`;
@@ -343,7 +344,7 @@ LV.forEach((l) => {
 
 // 生成手机弹窗图鉴
 const lvlistModal = document.getElementById('lvlist-modal');
-LV.forEach((l) => {
+LV.forEach(l => {
   lvlistModal.innerHTML += `<div class="lvitem">
     <div class="lvthumb"><img src="${l.img}"></div>
     <span>${l.name}</span>
@@ -353,313 +354,342 @@ LV.forEach((l) => {
 function openLvModal() { document.getElementById('lv-modal').classList.add('open'); }
 function closeLvModal() { document.getElementById('lv-modal').classList.remove('open'); }
 
-// ===== 启动页处理 =====
+// ===== Matter.js 初始化 =====
+const { Engine, Render, Runner, Bodies, Body, World, Events, Vector } = Matter;
+const engine = Engine.create({ gravity: { y: 1.5 } });
+const world = engine.world;
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// 墙壁
+const wallOpts = { isStatic: true, restitution: 0.3, friction: 0.5 };
+const ground = Bodies.rectangle(W/2, H + 25, W, 50, wallOpts);
+const wallL  = Bodies.rectangle(-25, H/2, 50, H, wallOpts);
+const wallR  = Bodies.rectangle(W+25, H/2, 50, H, wallOpts);
+World.add(world, [ground, wallL, wallR]);
+
+let circles = [];       // 所有已落地的球
+let droppingBall = null; // 当前正在下落的球（不参与死亡判定）
+let nextLv = randLv();
+let score = 0;
+let dead = false;
+let gameStarted = false;
+let mouseX = W / 2;
+// 落地后的"冷却时间"：球落地后多少ms才开始参与死亡判定
+const SETTLE_DELAY = 1200; // ms
+
+// 音乐
 const bgm = document.getElementById('bgm');
-const musicBtn = document.getElementById('music-btn');
-let musicOn = false;
+let musicOn = true;
+document.getElementById('music-btn').onclick = () => {
+  musicOn = !musicOn;
+  if (musicOn) { bgm.play(); document.getElementById('music-btn').textContent = '🎵'; }
+  else { bgm.pause(); document.getElementById('music-btn').textContent = '🔇'; }
+};
 
 function handleStart() {
   const ss = document.getElementById('start-screen');
   ss.classList.add('hidden');
-  setTimeout(() => { ss.style.display = 'none'; }, 500);
-  bgm.play().then(() => {
-    musicOn = true;
-    musicBtn.textContent = '🎵';
-  }).catch(() => {});
+  setTimeout(() => ss.style.display = 'none', 500);
+  bgm.play().catch(() => {});
+  gameStarted = true;
+  spawnPreview();
 }
 
-// 音乐开关按钮
-musicBtn.addEventListener('click', () => {
-  if (musicOn) {
-    bgm.pause();
-    musicBtn.textContent = '🔇';
-    musicOn = false;
-  } else {
-    bgm.play().catch(() => {});
-    musicBtn.textContent = '🎵';
-    musicOn = true;
-  }
+function randLv() {
+  // 只随机低等级球
+  const max = Math.min(4, LV.length - 1);
+  return Math.floor(Math.random() * max);
+}
+
+function updateUI() {
+  document.getElementById('score-val').textContent = score;
+  document.getElementById('mob-score-val').textContent = score;
+  const ni = document.getElementById('nimg');
+  const mni = document.getElementById('mob-nimg');
+  ni.src = LV[nextLv].img;
+  mni.src = LV[nextLv].img;
+}
+
+// ===== 预览球（只是视觉，不进物理引擎）=====
+let previewLv = 0;
+function spawnPreview() {
+  previewLv = nextLv;
+  nextLv = randLv();
+  updateUI();
+}
+
+// ===== 投放球 =====
+function dropBall(x) {
+  if (dead || !gameStarted) return;
+  if (droppingBall) return; // 上一个球还没落定，不允许再投
+
+  const lv = previewLv;
+  const r  = LV[lv].r;
+  x = Math.max(r + 5, Math.min(W - r - 5, x));
+
+  const body = Bodies.circle(x, DROP_Y, r, {
+    restitution: 0.3,
+    friction: 0.6,
+    frictionAir: 0.008,
+    density: 0.002,
+    label: 'ball'
+  });
+  body._lv = lv;
+  body._merged = false;
+  // ★ 记录"投放时间"，用于死亡判定冷却
+  body._dropTime = Date.now();
+
+  World.add(world, body);
+
+  const ballObj = { body, lv, merging: false };
+  circles.push(ballObj);
+  droppingBall = ballObj;
+
+  // 监听这个球"稳定落地"后解除 droppingBall 锁定
+  // 策略：每隔100ms检查速度，速度够小就解锁，最多等3秒
+  const lockStart = Date.now();
+  const checkSettle = setInterval(() => {
+    if (!droppingBall || droppingBall !== ballObj) {
+      clearInterval(checkSettle);
+      return;
+    }
+    const v = ballObj.body.velocity;
+    const speed = Math.sqrt(v.x * v.x + v.y * v.y);
+    const elapsed = Date.now() - lockStart;
+    // 速度小于1，或者超过3秒强制解锁
+    if (speed < 1.0 || elapsed > 3000) {
+      droppingBall = null;
+      clearInterval(checkSettle);
+    }
+  }, 100);
+
+  spawnPreview();
+}
+
+// ===== 合并逻辑 =====
+Events.on(engine, 'collisionStart', e => {
+  e.pairs.forEach(pair => {
+    const { bodyA, bodyB } = pair;
+    if (bodyA.label !== 'ball' || bodyB.label !== 'ball') return;
+
+    const lvA = bodyA._lv, lvB = bodyB._lv;
+    if (lvA !== lvB) return;
+    if (bodyA._merged || bodyB._merged) return;
+    if (lvA >= LV.length - 1) return;
+
+    bodyA._merged = true;
+    bodyB._merged = true;
+
+    const nx = (bodyA.position.x + bodyB.position.x) / 2;
+    const ny = (bodyA.position.y + bodyB.position.y) / 2;
+    const newLv = lvA + 1;
+
+    World.remove(world, bodyA);
+    World.remove(world, bodyB);
+    circles = circles.filter(c => c.body !== bodyA && c.body !== bodyB);
+
+    // 如果被合并的球是 droppingBall，解锁
+    if (droppingBall && (droppingBall.body === bodyA || droppingBall.body === bodyB)) {
+      droppingBall = null;
+    }
+
+    score += LV[newLv].score;
+    updateUI();
+
+    const nr = LV[newLv].r;
+    const newBody = Bodies.circle(nx, ny, nr, {
+      restitution: 0.35,
+      friction: 0.5,
+      frictionAir: 0.008,
+      density: 0.002,
+      label: 'ball'
+    });
+    newBody._lv = newLv;
+    newBody._merged = false;
+    newBody._dropTime = Date.now(); // 合并出来的球也有冷却
+    World.add(world, newBody);
+    circles.push({ body: newBody, lv: newLv, merging: false });
+
+    showQuote(nx, ny);
+  });
 });
 
-// 同步更新分数和NEXT（桌面+手机）
-function updateScore(val) {
-  document.getElementById('score-val').textContent = val;
-  document.getElementById('mob-score-val').textContent = val;
-}
-function updateNext(src) {
-  document.getElementById('nimg').src = src;
-  document.getElementById('mob-nimg').src = src;
-}
-
-// 台词弹出
-const quotePopup = document.getElementById('quote-popup');
-let quoteTimer = null;
-
+// ===== 语录弹出 =====
 function showQuote(x, y) {
-  const text = QUOTES[Math.floor(Math.random() * QUOTES.length)];
-  quotePopup.textContent = text;
-  quotePopup.style.transition = 'none';
-  quotePopup.style.opacity = '1';
-  quotePopup.style.transform = 'translateY(0px)';
-  const pw = quotePopup.offsetWidth || 120;
-  const ph = quotePopup.offsetHeight || 36;
-  quotePopup.style.left = Math.max(0, Math.min(W - pw, x - pw / 2)) + 'px';
-  quotePopup.style.top  = Math.max(0, y - ph - 10) + 'px';
-  if (quoteTimer) clearTimeout(quoteTimer);
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      quotePopup.style.transition = 'opacity 0.9s ease, transform 0.9s ease';
-      quotePopup.style.opacity = '0';
-      quotePopup.style.transform = 'translateY(-40px)';
-    });
-  });
-  quoteTimer = setTimeout(() => {
-    quotePopup.style.transition = 'none';
-    quotePopup.style.opacity = '0';
-  }, 1000);
+  const el = document.getElementById('quote-popup');
+  el.textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  el.style.left = (x - 50) + 'px';
+  el.style.top  = (y - 30) + 'px';
+  el.style.opacity = '1';
+  el.style.transition = 'none';
+  el.style.transform = 'translateY(0px)';
+  setTimeout(() => {
+    el.style.transition = 'opacity 0.8s ease, transform 0.8s ease';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(-40px)';
+  }, 50);
 }
 
-// 物理引擎
-const { Engine, Bodies, Body, World, Events } = Matter;
-let engine, world;
-let circles = [], merging = new Set(), pendingMerges = [];
-let score = 0, curLv, nxtLv, dropX = W/2;
-let canDrop = true, dead = false, goTimer = 0;
-
-function initPhysics() {
-  engine = Engine.create({ gravity: { y: 2 } });
-  world = engine.world;
-  const T = 20;
-  World.add(world, [
-    Bodies.rectangle(W/2, H+T/2, W+T*2, T, { isStatic:true }),
-    Bodies.rectangle(-T/2, H/2, T, H*3, { isStatic:true }),
-    Bodies.rectangle(W+T/2, H/2, T, H*3, { isStatic:true }),
-  ]);
-  Events.on(engine, 'collisionStart', e => {
-    if (dead) return;
-    e.pairs.forEach(p => {
-      const a = circles.find(c => c.body === p.bodyA);
-      const b = circles.find(c => c.body === p.bodyB);
-      if (!a || !b) return;
-      if (a.lv !== b.lv || a.lv >= LV.length-1) return;
-      if (merging.has(a) || merging.has(b)) return;
-      merging.add(a); merging.add(b);
-      pendingMerges.push([a, b]);
-    });
-  });
-}
-
-function processMerges() {
-  if (!pendingMerges.length) return;
-  pendingMerges.forEach(([a, b]) => {
-    if (!circles.includes(a) || !circles.includes(b)) return;
-    const nl = a.lv + 1;
-    const mx = (a.body.position.x + b.body.position.x) / 2;
-    const my = (a.body.position.y + b.body.position.y) / 2;
-    removeC(a); removeC(b);
-    const nc = addC(mx, my, nl);
-    Body.setVelocity(nc.body, { x: 0, y: -3 });
-    score += LV[nl].score;
-    updateScore(score);
-    showQuote(mx, my);
-  });
-  pendingMerges = []; merging.clear();
-}
-
-function addC(x, y, lv) {
-  const body = Bodies.circle(x, y, LV[lv].r, {
-    restitution: 0.25, friction: 0.5, frictionAir: 0.01, density: 0.002,
-  });
-  World.add(world, body);
-  const c = { body, lv };
-  circles.push(c);
-  return c;
-}
-
-function removeC(c) {
-  World.remove(world, c.body);
-  const i = circles.indexOf(c);
-  if (i !== -1) circles.splice(i, 1);
-  merging.delete(c);
-}
-
-function drop() {
-  if (!canDrop || dead) return;
-  canDrop = false;
-  addC(dropX, DROP_Y, curLv);
-  curLv = nxtLv;
-  nxtLv = randLv();
-  updateNext(LV[nxtLv].img);
-  setTimeout(() => { if (!dead) canDrop = true; }, 700);
-}
-
-function randLv() { return Math.floor(Math.random() * 4); }
-
+// ===== 死亡判定（修复版）=====
 function checkDead() {
+  if (dead) return;
+  const now = Date.now();
   for (const c of circles) {
-    const spd = Math.sqrt(c.body.velocity.x**2 + c.body.velocity.y**2);
-    if (c.body.position.y - LV[c.lv].r < DANGER_Y && spd < 0.8) {
-      dead = true; canDrop = false;
+    // ★ 跳过正在下落的球（droppingBall）
+    if (c === droppingBall) continue;
+    // ★ 跳过刚落地还在冷却期的球（SETTLE_DELAY ms内不判定）
+    if (now - c.body._dropTime < SETTLE_DELAY) continue;
+
+    const v = c.body.velocity;
+    const speed = Math.sqrt(v.x * v.x + v.y * v.y);
+
+    // ★ 只有静止（speed < 0.5）且球的顶部超过死亡线才算死
+    if (speed < 0.5 && c.body.position.y - LV[c.lv].r < DANGER_Y) {
+      dead = true;
+      droppingBall = null;
       document.getElementById('fscore').textContent = score;
       document.getElementById('overlay').style.display = 'flex';
+      bgm.pause();
       return;
     }
   }
 }
 
-function restart() {
-  circles.forEach(c => World.remove(world, c.body));
-  circles = []; merging.clear(); pendingMerges = [];
-  score = 0; dead = false; canDrop = true; dropX = W/2; goTimer = 0;
-  updateScore(0);
-  document.getElementById('overlay').style.display = 'none';
-  curLv = randLv(); nxtLv = randLv();
-  updateNext(LV[nxtLv].img);
+// ===== 游戏循环 =====
+function gameLoop() {
+  Engine.update(engine, 1000 / 60);
+  drawFrame();
+  if (gameStarted && !dead) checkDead();
+  requestAnimationFrame(gameLoop);
 }
 
-// 渲染
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
+// ===== 绘制 =====
+function drawFrame() {
+  ctx.clearRect(0, 0, W, H);
 
-// 获取canvas缩放比（手机适配）
-function getScale() {
-  return canvas.getBoundingClientRect().width / W;
-}
+  // 背景
+  ctx.fillStyle = 'rgba(15, 5, 30, 0.55)';
+  ctx.fillRect(0, 0, W, H);
 
-function drawDropLine() {
+  // 顶部区域（投放区）
+  ctx.fillStyle = 'rgba(232,160,191,0.06)';
+  ctx.fillRect(0, 0, W, DROP_Y + 5);
+
+  // 死亡线
   ctx.save();
+  ctx.strokeStyle = 'rgba(255, 80, 100, 0.55)';
+  ctx.lineWidth = 1.5;
   ctx.setLineDash([6, 5]);
-  ctx.strokeStyle = 'rgba(232,160,191,0.35)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(dropX, DROP_Y);
-  ctx.lineTo(dropX, H);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawPreview() {
-  if (!canDrop || dead) return;
-  const r = LV[curLv].r;
-  const img = IMGS[curLv];
-  ctx.save();
-  ctx.globalAlpha = 0.75;
-  ctx.beginPath();
-  ctx.arc(dropX, DROP_Y, r, 0, Math.PI*2);
-  ctx.clip();
-  ctx.drawImage(img, dropX-r, DROP_Y-r, r*2, r*2);
-  ctx.restore();
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(dropX, DROP_Y, r, 0, Math.PI*2);
-  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawTopBar() {
-  ctx.save();
-  ctx.fillStyle = 'rgba(232,160,191,0.12)';
-  ctx.beginPath();
-  ctx.roundRect(0, 0, W, DROP_Y - 4, [12, 12, 0, 0]);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(232,160,191,0.25)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.restore();
-  ctx.save();
-  ctx.strokeStyle = 'rgba(232,160,191,0.5)';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([4, 4]);
   ctx.beginPath();
   ctx.moveTo(0, DANGER_Y);
   ctx.lineTo(W, DANGER_Y);
   ctx.stroke();
   ctx.restore();
-}
 
-function render() {
-  ctx.clearRect(0, 0, W, H);
-  drawTopBar();
-  drawDropLine();
-  for (const c of circles) {
-    const { x, y } = c.body.position;
-    const r = LV[c.lv].r;
-    const img = IMGS[c.lv];
-    const angle = c.body.angle;
+  // 画预览球
+  if (gameStarted && !dead) {
+    const lv = previewLv;
+    const r  = LV[lv].r;
+    const px = Math.max(r + 5, Math.min(W - r - 5, mouseX));
     ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
+    ctx.globalAlpha = 0.55;
     ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI*2);
+    ctx.arc(px, DROP_Y, r, 0, Math.PI * 2);
     ctx.clip();
-    ctx.drawImage(img, -r, -r, r*2, r*2);
+    ctx.drawImage(IMGS[lv], px - r, DROP_Y - r, r * 2, r * 2);
     ctx.restore();
+    // 引导线
     ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
+    ctx.strokeStyle = 'rgba(232,160,191,0.25)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 6]);
     ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI*2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 2;
+    ctx.moveTo(px, DROP_Y + r);
+    ctx.lineTo(px, H);
     ctx.stroke();
     ctx.restore();
   }
-  drawPreview();
+
+  // 画所有球
+  for (const c of circles) {
+    const { body, lv } = c;
+    const { x, y } = body.position;
+    const r = LV[lv].r;
+    const angle = body.angle;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(IMGS[lv], -r, -r, r * 2, r * 2);
+    ctx.restore();
+
+    // 边框
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
-// 事件处理（鼠标+触摸，支持缩放）
-function getCanvasX(clientX) {
-  const rect = canvas.getBoundingClientRect();
-  const scale = W / rect.width;
-  return (clientX - rect.left) * scale;
+// ===== 重新开始 =====
+function restart() {
+  circles.forEach(c => World.remove(world, c.body));
+  circles = [];
+  droppingBall = null;
+  score = 0;
+  dead = false;
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('score-val').textContent = '0';
+  document.getElementById('mob-score-val').textContent = '0';
+  spawnPreview();
+  if (musicOn) bgm.play().catch(() => {});
 }
 
+// ===== 输入事件 =====
 canvas.addEventListener('mousemove', e => {
-  if (dead) return;
-  dropX = Math.max(LV[curLv].r, Math.min(W - LV[curLv].r, getCanvasX(e.clientX)));
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  mouseX = (e.clientX - rect.left) * scaleX;
 });
 
 canvas.addEventListener('click', e => {
-  if (dead) return;
-  dropX = Math.max(LV[curLv].r, Math.min(W - LV[curLv].r, getCanvasX(e.clientX)));
-  drop();
+  if (!gameStarted || dead) return;
+  if (droppingBall) return; // 锁定期不允许投
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  dropBall((e.clientX - rect.left) * scaleX);
 });
 
+// 触摸
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
-  if (dead) return;
-  const t = e.touches[0];
-  dropX = Math.max(LV[curLv].r, Math.min(W - LV[curLv].r, getCanvasX(t.clientX)));
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  mouseX = (e.touches[0].clientX - rect.left) * scaleX;
 }, { passive: false });
 
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
-  if (dead) return;
-  const t = e.changedTouches[0];
-  dropX = Math.max(LV[curLv].r, Math.min(W - LV[curLv].r, getCanvasX(t.clientX)));
-  drop();
+  if (!gameStarted || dead) return;
+  if (droppingBall) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  const tx = (e.changedTouches[0].clientX - rect.left) * scaleX;
+  dropBall(tx);
 }, { passive: false });
 
-// 主循环
-let lastTime = 0;
-function loop(ts) {
-  const dt = Math.min(ts - lastTime, 32);
-  lastTime = ts;
-  Engine.update(engine, dt);
-  processMerges();
-  goTimer += dt;
-  if (goTimer > 2000) checkDead();
-  render();
-  requestAnimationFrame(loop);
-}
-
-// 初始化
-initPhysics();
-curLv = randLv(); nxtLv = randLv();
-updateNext(LV[nxtLv].img);
-requestAnimationFrame(loop);
+// ===== 启动 =====
+updateUI();
+gameLoop();
 </script>
 </body>
 </html>
